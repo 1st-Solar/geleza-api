@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { years } from '../controllers/paperController.js';
+import { stats } from '../controllers/statsController.js';
 
 const router = Router();
-router.get('/', years);
+router.get('/', stats);
 export default router;

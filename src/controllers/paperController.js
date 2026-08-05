@@ -1,35 +1,24 @@
 /**
- * @fileoverview Paper-related HTTP controllers.
- * Controllers parse request → call service → send response.
- * They never touch the data source directly.
+ * @fileoverview Paper controllers.
  */
 
 import * as paperService from '../services/paperService.js';
-import {
-  parsePagination,
-  parseSort,
-  parseFilters,
-  parsePositiveInt,
-} from '../utils/queryHelpers.js';
+import { parsePagination, parsePositiveInt } from '../utils/pagination.js';
+import { parseSort } from '../utils/sorting.js';
+import { parseFilters } from '../utils/filtering.js';
+import { validatePaperQuery } from '../middleware/validation.js';
+import { getApiBaseUrl, paperLinks } from '../utils/requestUrl.js';
 
 /**
- * GET /papers
+ * GET /api/v1/papers
  * @type {import('express').RequestHandler}
  */
 export async function listPapers(req, res, next) {
   try {
+    validatePaperQuery(req.query);
     const { page, limit, offset } = parsePagination(req.query);
     const sort = parseSort(req.query);
-    const filters = parseFilters(req.query, [
-      'grade',
-      'subject',
-      'year',
-      'session',
-      'province',
-      'assessmentType',
-      'paper',
-      'language',
-    ]);
+    const filters = parseFilters(req.query);
 
     const result = paperService.listPapers({
       filters,
@@ -39,116 +28,154 @@ export async function listPapers(req, res, next) {
       page,
     });
 
-    res.json(result);
+    res.json({ success: true, data: result.data, meta: result.meta });
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * GET /papers/:id
+ * GET /api/v1/papers/:id
  * @type {import('express').RequestHandler}
  */
 export async function getPaper(req, res, next) {
   try {
     const paper = paperService.getPaperById(req.params.id);
-    res.json(paper);
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * GET /search?q=...
- * @type {import('express').RequestHandler}
- */
-export async function search(req, res, next) {
-  try {
-    const { page, limit, offset } = parsePagination(req.query);
-    const result = paperService.searchPapers(req.query.q, {
-      offset,
-      limit,
-      page,
+    res.json({
+      success: true,
+      data: {
+        ...paper,
+        links: paperLinks(req, paper.id),
+      },
     });
-    res.json(result);
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * GET /stats
- * @type {import('express').RequestHandler}
- */
-export async function stats(req, res, next) {
-  try {
-    res.json(paperService.getStats());
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
- * GET /grades
+ * GET /api/v1/grades
  * @type {import('express').RequestHandler}
  */
 export async function grades(req, res, next) {
   try {
-    res.json(paperService.getGrades());
+    res.json({ success: true, data: paperService.getGrades() });
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * GET /subjects?grade=12
+ * GET /api/v1/subjects?grade=12
  * @type {import('express').RequestHandler}
  */
 export async function subjects(req, res, next) {
   try {
+    validatePaperQuery(req.query);
     const grade = req.query.grade
-      ? parsePositiveInt(req.query.grade, undefined)
+      ? parsePositiveInt(req.query.grade, NaN)
       : undefined;
-    res.json(paperService.getSubjects(grade));
+    res.json({
+      success: true,
+      data: paperService.getSubjects(
+        Number.isFinite(grade) ? grade : undefined
+      ),
+    });
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * GET /years?grade=12&subject=Mathematics
+ * GET /api/v1/years
  * @type {import('express').RequestHandler}
  */
 export async function years(req, res, next) {
   try {
-    const grade = req.query.grade
-      ? parsePositiveInt(req.query.grade, undefined)
-      : undefined;
-    const subject = req.query.subject
-      ? String(req.query.subject)
-      : undefined;
-    res.json(paperService.getYears(grade, subject));
+    validatePaperQuery(req.query);
+    const filters = parseFilters(req.query, [
+      'grade',
+      'subject',
+      'session',
+      'province',
+    ]);
+    res.json({ success: true, data: paperService.getYears(filters) });
   } catch (err) {
     next(err);
   }
 }
 
 /**
- * GET /sessions?grade=12&subject=Mathematics&year=2025
+ * GET /api/v1/sessions
  * @type {import('express').RequestHandler}
  */
 export async function sessions(req, res, next) {
   try {
-    const grade = req.query.grade
-      ? parsePositiveInt(req.query.grade, undefined)
-      : undefined;
-    const subject = req.query.subject
-      ? String(req.query.subject)
-      : undefined;
-    const year = req.query.year
-      ? parsePositiveInt(req.query.year, undefined)
-      : undefined;
-    res.json(paperService.getSessions(grade, subject, year));
+    validatePaperQuery(req.query);
+    const filters = parseFilters(req.query, ['grade', 'subject', 'year']);
+    res.json({ success: true, data: paperService.getSessions(filters) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/v1/provinces
+ * @type {import('express').RequestHandler}
+ */
+export async function provinces(req, res, next) {
+  try {
+    validatePaperQuery(req.query);
+    const filters = parseFilters(req.query, [
+      'grade',
+      'subject',
+      'year',
+      'session',
+    ]);
+    res.json({ success: true, data: paperService.getProvinces(filters) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/v1/download/:id?type=pdf|memo
+ * @type {import('express').RequestHandler}
+ */
+export async function download(req, res, next) {
+  try {
+    const type = req.query.type === 'memo' ? 'memo' : 'pdf';
+    const info = paperService.getDownloadInfo(
+      req.params.id,
+      type,
+      getApiBaseUrl(req)
+    );
+    res.json({ success: true, data: info });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/v1/view/:id?type=pdf|memo
+ * Redirects to the PDF URL (or returns metadata if prefer JSON).
+ * @type {import('express').RequestHandler}
+ */
+export async function view(req, res, next) {
+  try {
+    const type = req.query.type === 'memo' ? 'memo' : 'pdf';
+    const info = paperService.getDownloadInfo(
+      req.params.id,
+      type,
+      getApiBaseUrl(req)
+    );
+
+    // If client asks for JSON, return metadata; otherwise redirect
+    if (req.query.format === 'json') {
+      res.json({ success: true, data: info });
+      return;
+    }
+    res.redirect(302, info.url);
   } catch (err) {
     next(err);
   }

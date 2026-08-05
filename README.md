@@ -1,165 +1,182 @@
 # Geleza API
 
-Production-ready Express API for **GelezaAI** – serves indexed South African CAPS past exam papers.
+Production backend for **GelezaAI** – serves indexed South African CAPS past exam papers.
 
-Designed with a **repository pattern** so the data source can switch from `papers.json` to Supabase later **without changing routes or controllers**.
+Independent of the crawler and the Capacitor app.
+
+## Production
+
+```
+https://geleza-api-production.up.railway.app/api/v1
+```
+
+The source code never hardcodes this domain. The server binds to `process.env.PORT || 3000` and builds absolute links from the incoming request (`req.protocol` + `Host` header), so the same binary works on localhost, Railway, Docker, Render, or any other host.
 
 ## Stack
 
-- Node.js ≥ 18
-- Express (ES Modules)
-- dotenv, cors, morgan, compression
-- No TypeScript, no ORM, no database yet
+| Package | Purpose |
+|---------|---------|
+| express | HTTP server |
+| helmet | Security headers |
+| cors | Cross-origin (`CORS_ORIGINS` env) |
+| compression | gzip |
+| morgan | Request logging |
+| express-rate-limit | Rate limiting |
+| dotenv | Config |
+| uuid | IDs (future modules) |
 
-## Quick start
+Node.js ≥ 18 · ES Modules · No TypeScript · No ORM · No DB (yet)
 
-```bash
-# 1. Install
-npm install
+## Architecture
 
-# 2. Copy your crawler output
-cp /path/to/crawler/src/output/papers.json src/data/papers.json
-
-# 3. Configure (optional)
-cp .env.example .env
-
-# 4. Run
-npm start
-# or with auto-reload
-npm run dev
+```
+HTTP Request
+    ↓
+  /api/v1/*  (versioned)
+    ↓
+  Route → Controller → Service → Repository → papers.json (memory)
 ```
 
-API base: `http://localhost:3000`
+Only the **repository** knows the data source. Swap `paperRepository.js` for Supabase later; routes, controllers, services, and the mobile app stay unchanged.
+
+## Quick start (local)
+
+```bash
+npm install
+cp /path/to/crawler/src/output/papers.json src/data/papers.json
+cp .env.example .env
+npm start
+```
+
+Local base: `http://localhost:3000/api/v1`
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | Listen port (Railway sets this) |
+| `NODE_ENV` | `development` | `production` on Railway |
+| `APP_VERSION` | `1.0.0` | Reported in `/health` |
+| `PAPERS_PATH` | `./src/data/papers.json` | Path to papers data |
+| `DEFAULT_LIMIT` | `20` | Default page size |
+| `MAX_LIMIT` | `100` | Max page size |
+| `CORS_ORIGINS` | _(empty = allow all)_ | Comma-separated origins |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window |
+| `RATE_LIMIT_MAX` | `120` | Max requests per window |
+
+Example `CORS_ORIGINS`:
+
+```
+capacitor://localhost,http://localhost:8000,http://localhost:5173,https://geleza.ai
+```
 
 ## Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Health check `{ "status": "ok" }` |
-| GET | `/grades` | All grades |
-| GET | `/subjects?grade=12` | Subjects (optional grade filter) |
-| GET | `/years?grade=12&subject=Mathematics` | Years |
-| GET | `/sessions?grade=12&subject=Mathematics&year=2025` | Sessions |
-| GET | `/papers` | Filtered, paginated paper list |
-| GET | `/papers/:id` | Single paper by UUID |
-| GET | `/search?q=mathematics` | Free-text search |
-| GET | `/stats` | Aggregate counts |
+| GET | `/api/v1/health` | Status, version, paper count, environment, uptime |
+| GET | `/api/v1/grades` | Unique grades |
+| GET | `/api/v1/subjects?grade=12` | Subjects |
+| GET | `/api/v1/years?...` | Years (filterable) |
+| GET | `/api/v1/sessions?...` | Sessions |
+| GET | `/api/v1/provinces?...` | Provinces that **actually exist** for filters |
+| GET | `/api/v1/papers?...` | Filtered, sorted, paginated list |
+| GET | `/api/v1/papers/:id` | Single paper (+ dynamic `links`) |
+| GET | `/api/v1/search?q=` | Free-text search |
+| GET | `/api/v1/stats` | Aggregates |
+| GET | `/api/v1/download/:id?type=pdf\|memo` | Download metadata |
+| GET | `/api/v1/view/:id` | Redirect to PDF |
 
-### `/papers` query parameters
+### Response format
 
-| Param | Example | Notes |
-|-------|---------|-------|
-| `grade` | `12` | number |
-| `subject` | `Mathematics` | case-insensitive |
-| `year` | `2025` | number |
-| `session` | `November` | case-insensitive |
-| `province` | `KwaZulu-Natal` | case-insensitive |
-| `assessmentType` | `Exam` | |
-| `paper` | `1` | paper number |
-| `language` | `English` | |
-| `page` | `1` | default 1 |
-| `limit` | `20` | default 20, max 100 |
-| `sort` | `year` | year, subject, grade, province, session |
-| `order` | `desc` | asc or desc |
-
-**Example**
-
-```
-GET /papers?grade=12&subject=Mathematics&year=2025&session=November&limit=10
-```
-
-**Response shape**
+Success:
 
 ```json
 {
-  "data": [
-    {
-      "id": "...",
-      "grade": 12,
-      "subject": "Mathematics",
-      "year": 2025,
-      "province": "National",
-      "session": "November",
-      "assessmentType": "Exam",
-      "paper": 1,
-      "memo": true,
-      "language": "English",
-      "source": "Testpapers",
-      "pdf": "https://...",
-      "memoPdf": "https://..."
-    }
-  ],
-  "total": 42,
-  "page": 1,
-  "limit": 10,
-  "totalPages": 5
+  "success": true,
+  "data": ...,
+  "meta": { "page": 1, "limit": 20, "total": 9923, "totalPages": 497 }
 }
 ```
 
-## Architecture
+Error:
 
+```json
+{
+  "success": false,
+  "error": { "code": "NOT_FOUND", "message": "Paper not found" }
+}
 ```
-Controller  →  Service  →  Repository  →  papers.json (memory)
+
+## Example requests (production)
+
+```bash
+# Health
+curl https://geleza-api-production.up.railway.app/api/v1/health
+
+# Grades
+curl https://geleza-api-production.up.railway.app/api/v1/grades
+
+# Subjects
+curl "https://geleza-api-production.up.railway.app/api/v1/subjects?grade=12"
+
+# Years
+curl "https://geleza-api-production.up.railway.app/api/v1/years?grade=12&subject=Mathematics"
+
+# Sessions
+curl "https://geleza-api-production.up.railway.app/api/v1/sessions?grade=12&subject=Mathematics&year=2025"
+
+# Provinces
+curl "https://geleza-api-production.up.railway.app/api/v1/provinces?grade=11&subject=Mathematics&year=2025&session=November"
+
+# Papers
+curl "https://geleza-api-production.up.railway.app/api/v1/papers?grade=12&subject=Mathematics&year=2025&session=November&page=1&limit=5"
+
+# Search
+curl "https://geleza-api-production.up.railway.app/api/v1/search?q=mathematics&limit=5"
+
+# Stats
+curl https://geleza-api-production.up.railway.app/api/v1/stats
+
+# View / download (replace :id with a real paper UUID)
+curl -I "https://geleza-api-production.up.railway.app/api/v1/view/:id"
+curl "https://geleza-api-production.up.railway.app/api/v1/download/:id"
+curl "https://geleza-api-production.up.railway.app/api/v1/download/:id?type=memo"
 ```
 
-- **Controllers** parse HTTP, call services, send responses
-- **Services** hold light business rules
-- **Repository** is the *only* place that knows about the data source
+## Local examples
 
-### Migrating to Supabase later
-
-1. Implement the same method signatures in `paperRepository.js` using the Supabase client.
-2. Call `load()` (or a no-op) at startup.
-3. **Do not change** routes or controllers.
+```bash
+curl http://localhost:3000/api/v1/health
+curl "http://localhost:3000/api/v1/papers?grade=12&limit=3"
+```
 
 ## Deploy on Railway
 
-1. Push this repo to GitHub (or connect Railway to a local folder).
-2. Create a new Railway project → **Deploy from GitHub**.
-3. Railway detects Node automatically via `railway.json` / Nixpacks.
-4. Set environment variables in the Railway dashboard:
+1. Push this repo to GitHub (`1st-Solar/geleza-api`).
+2. Railway deploys from `main` with start command `node src/server.js`.
+3. Set env vars as needed (`NODE_ENV=production`, `CORS_ORIGINS`, …).
+4. Ensure `src/data/papers.json` is included in the deploy.
+5. Health check: `https://geleza-api-production.up.railway.app/api/v1/health`
 
-   | Variable | Value |
-   |----------|-------|
-   | `NODE_ENV` | `production` |
-   | `PORT` | (Railway sets this automatically) |
-   | `CORS_ORIGINS` | your Capacitor / web origins |
-   | `PAPERS_PATH` | leave default, or point to a mounted volume |
+`app.set('trust proxy', 1)` is enabled so protocol/host (and rate-limit IPs) are correct behind Railway’s proxy.
 
-5. **Important:** include your real `src/data/papers.json` in the deploy (or mount it as a volume / download it in a start script).
+## OpenAPI
 
-6. After deploy, open `https://<your-app>.up.railway.app/health`.
+See `docs/openapi.yaml` for the full contract.
 
-### Optional: start script that pulls latest papers
+## Future modules
 
-If you keep papers.json in a private URL or S3, you can replace the start command:
-
-```bash
-curl -o src/data/papers.json https://.../papers.json && node src/server.js
-```
-
-## Project structure
+Placeholder directories:
 
 ```
-geleza-api/
-├── package.json
-├── railway.json
-├── .env.example
-├── README.md
-├── src/
-│   ├── server.js          # Entry – load data, listen
-│   ├── app.js             # Express app + routes
-│   ├── config/config.js
-│   ├── routes/
-│   ├── controllers/
-│   ├── services/
-│   ├── repositories/
-│   │   └── paperRepository.js   # ← swap this for Supabase
-│   ├── middleware/
-│   ├── utils/
-│   └── data/
-│       └── papers.json
-└── tests/
+src/ai/{chat,solve,translate,ocr}
+src/auth
+src/users
+src/favorites
+src/history
+src/analytics
+src/downloads
 ```
 
 ## License

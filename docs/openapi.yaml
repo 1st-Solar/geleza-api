@@ -1,0 +1,371 @@
+openapi: 3.0.3
+info:
+  title: Geleza API
+  description: Production backend for GelezaAI – South African CAPS past exam papers.
+  version: 1.0.0
+servers:
+  - url: /api/v1
+    description: Versioned API base
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /grades:
+    get:
+      summary: List available grades
+      operationId: getGrades
+      responses:
+        '200':
+          description: Array of grade numbers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessArray'
+
+  /subjects:
+    get:
+      summary: List subjects
+      operationId: getSubjects
+      parameters:
+        - $ref: '#/components/parameters/grade'
+      responses:
+        '200':
+          description: Array of subject names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessArray'
+
+  /years:
+    get:
+      summary: List years
+      operationId: getYears
+      parameters:
+        - $ref: '#/components/parameters/grade'
+        - $ref: '#/components/parameters/subject'
+        - $ref: '#/components/parameters/session'
+        - $ref: '#/components/parameters/province'
+      responses:
+        '200':
+          description: Array of years (newest first)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessArray'
+
+  /sessions:
+    get:
+      summary: List sessions
+      operationId: getSessions
+      parameters:
+        - $ref: '#/components/parameters/grade'
+        - $ref: '#/components/parameters/subject'
+        - $ref: '#/components/parameters/year'
+      responses:
+        '200':
+          description: Array of session names
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessArray'
+
+  /provinces:
+    get:
+      summary: List provinces that exist for the given filters
+      operationId: getProvinces
+      parameters:
+        - $ref: '#/components/parameters/grade'
+        - $ref: '#/components/parameters/subject'
+        - $ref: '#/components/parameters/year'
+        - $ref: '#/components/parameters/session'
+      responses:
+        '200':
+          description: Array of province names (may be only National)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessArray'
+
+  /papers:
+    get:
+      summary: List papers with filters, sort and pagination
+      operationId: listPapers
+      parameters:
+        - $ref: '#/components/parameters/grade'
+        - $ref: '#/components/parameters/subject'
+        - $ref: '#/components/parameters/year'
+        - $ref: '#/components/parameters/session'
+        - $ref: '#/components/parameters/province'
+        - name: assessmentType
+          in: query
+          schema: { type: string }
+        - name: paper
+          in: query
+          schema: { type: integer }
+        - name: language
+          in: query
+          schema: { type: string }
+        - name: memo
+          in: query
+          schema: { type: boolean }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [year, subject, grade, province, session, assessmentType, language, paper]
+        - name: order
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        '200':
+          description: Paginated paper list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPapers'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /papers/{id}:
+    get:
+      summary: Get a single paper by ID
+      operationId: getPaper
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paper record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessPaper'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /search:
+    get:
+      summary: Free-text search
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedPapers'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /stats:
+    get:
+      summary: Aggregate statistics
+      operationId: getStats
+      responses:
+        '200':
+          description: Stats object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      totalPapers: { type: integer }
+                      subjects: { type: integer }
+                      grades: { type: array, items: { type: integer } }
+                      years: { type: array, items: { type: integer } }
+                      sessions: { type: array, items: { type: string } }
+                      provinces: { type: array, items: { type: string } }
+                      languages: { type: array, items: { type: string } }
+
+  /download/{id}:
+    get:
+      summary: Download metadata (hides storage backend from client)
+      operationId: download
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string, enum: [pdf, memo], default: pdf }
+      responses:
+        '200':
+          description: Download info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      url: { type: string }
+                      cached: { type: boolean }
+                      type: { type: string }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /view/{id}:
+    get:
+      summary: Redirect to PDF (or return JSON if format=json)
+      operationId: view
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string, enum: [pdf, memo], default: pdf }
+        - name: format
+          in: query
+          schema: { type: string, enum: [json] }
+      responses:
+        '302':
+          description: Redirect to PDF URL
+        '200':
+          description: JSON metadata when format=json
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    grade:
+      name: grade
+      in: query
+      schema: { type: integer }
+    subject:
+      name: subject
+      in: query
+      schema: { type: string }
+    year:
+      name: year
+      in: query
+      schema: { type: integer }
+    session:
+      name: session
+      in: query
+      schema: { type: string }
+    province:
+      name: province
+      in: query
+      schema: { type: string }
+
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            status: { type: string }
+            version: { type: string }
+            papers: { type: integer }
+            uptime: { type: integer }
+
+    SuccessArray:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: {}
+
+    SuccessPaper:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          $ref: '#/components/schemas/Paper'
+
+    PaginatedPapers:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Paper'
+        meta:
+          type: object
+          properties:
+            page: { type: integer }
+            limit: { type: integer }
+            total: { type: integer }
+            totalPages: { type: integer }
+
+    Paper:
+      type: object
+      properties:
+        id: { type: string }
+        grade: { type: integer }
+        subject: { type: string }
+        year: { type: integer }
+        province: { type: string }
+        session: { type: string, nullable: true }
+        assessmentType: { type: string }
+        paper: { type: integer, nullable: true }
+        memo: { type: boolean }
+        language: { type: string }
+        source: { type: string }
+        pdf: { type: string, nullable: true }
+        memoPdf: { type: string, nullable: true }
+
+    ErrorBody:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
