@@ -32,28 +32,47 @@ export function getPaperById(id) {
 }
 
 /**
- * Download metadata – abstracts storage backend from the client.
- * Optional apiBase is used to attach portable self-links (never hardcode a domain).
+ * Resolve the stored source URL for a paper (Drive or direct).
+ * Clients never receive this URL — only used server-side to proxy the PDF.
  * @param {string} id
  * @param {'pdf'|'memo'} [type='pdf']
- * @param {string} [apiBase] - e.g. "https://host/api/v1" from the request
- * @returns {{ url: string, cached: boolean, type: string, links?: object }}
+ * @returns {{ paper: object, sourceUrl: string, kind: string }}
  */
-export function getDownloadInfo(id, type = 'pdf', apiBase) {
+export function resolveSourceUrl(id, type = 'pdf') {
   const paper = getPaperById(id);
-  const url = type === 'memo' ? paper.memoPdf : paper.pdf;
+  const sourceUrl = type === 'memo' ? paper.memoPdf : paper.pdf;
 
-  if (!url) {
+  if (!sourceUrl) {
     throw httpError(
       404,
-      `No ${type === 'memo' ? 'memo' : 'question paper'} URL for paper ${id}`,
+      `No ${type === 'memo' ? 'memo' : 'question paper'} for paper ${id}`,
       ErrorCode.NOT_FOUND
     );
   }
 
+  return {
+    paper,
+    sourceUrl,
+    kind: type === 'memo' ? 'memo' : 'paper',
+  };
+}
+
+/**
+ * Metadata only — links point at this API's proxy endpoints, never Drive.
+ * @param {string} id
+ * @param {'pdf'|'memo'} [type='pdf']
+ * @param {string} [apiBase]
+ */
+export function getDownloadInfo(id, type = 'pdf', apiBase) {
+  resolveSourceUrl(id, type); // throws if missing
+
+  const suffix = type === 'memo' ? '?type=memo' : '';
   /** @type {{ url: string, cached: boolean, type: string, links?: object }} */
   const result = {
-    url,
+    // Client-facing URL is always the API proxy (same host)
+    url: apiBase
+      ? `${apiBase}/download/${id}${suffix}`
+      : `/api/v1/download/${id}${suffix}`,
     cached: false,
     type: type === 'memo' ? 'memo' : 'paper',
   };
@@ -61,8 +80,8 @@ export function getDownloadInfo(id, type = 'pdf', apiBase) {
   if (apiBase) {
     result.links = {
       self: `${apiBase}/papers/${id}`,
-      view: `${apiBase}/view/${id}${type === 'memo' ? '?type=memo' : ''}`,
-      download: `${apiBase}/download/${id}${type === 'memo' ? '?type=memo' : ''}`,
+      view: `${apiBase}/view/${id}${suffix}`,
+      download: `${apiBase}/download/${id}${suffix}`,
     };
   }
 
